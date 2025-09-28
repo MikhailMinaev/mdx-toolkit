@@ -115,14 +115,32 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
                     // Add opening tag
                     result.push(indent.repeat(jsxDepth) + '```' + codeLanguage);
                     
-                    // Format code block content
+                    // Format code block content based on language
                     if (codeLanguage === 'json' && codeBlockContent.length > 0) {
                         const formattedJson = this.formatJSONBlock(codeBlockContent.join('\n'), jsxDepth, indent);
                         result.push(...formattedJson.split('\n'));
+                    } else if (codeLanguage === 'yaml' || codeLanguage === 'yml') {
+                        const formattedYaml = this.formatYAMLBlock(codeBlockContent.join('\n'), jsxDepth, indent);
+                        result.push(...formattedYaml.split('\n'));
                     } else {
-                        // Non-JSON content - preserve original formatting
+                        // Other languages - normalize indentation and add base indentation
+                        // First, find the minimum indentation to normalize relative to
+                        const nonEmptyLines = codeBlockContent.filter(line => line.trim());
+                        const minIndent = nonEmptyLines.length > 0 
+                            ? Math.min(...nonEmptyLines.map(line => line.length - line.trimStart().length))
+                            : 0;
+                        
                         codeBlockContent.forEach(codeLine => {
-                            result.push(indent.repeat(jsxDepth) + codeLine);
+                            const trimmedLine = codeLine.trim();
+                            if (trimmedLine) {
+                                // Calculate relative indentation from the minimum
+                                const originalIndent = codeLine.length - codeLine.trimStart().length;
+                                const relativeIndent = Math.max(0, originalIndent - minIndent);
+                                const baseIndentStr = indent.repeat(jsxDepth);
+                                result.push(baseIndentStr + ' '.repeat(relativeIndent) + trimmedLine);
+                            } else {
+                                result.push('');
+                            }
                         });
                     }
                     
@@ -136,7 +154,8 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
             }
             
             if (inCodeBlock) {
-                codeBlockContent.push(trimmed);
+                // For code blocks, preserve original line (not trimmed) to maintain formatting
+                codeBlockContent.push(line);
                 continue;
             }
             
@@ -486,5 +505,29 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
             
             return result.join('\n');
         }
+    }
+
+    private formatYAMLBlock(yamlContent: string, baseIndent: number, indentString: string): string {
+        const lines = yamlContent.split('\n');
+        const result: string[] = [];
+        let currentIndent = 0;
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                result.push('');
+                continue;
+            }
+            
+            // Calculate indentation based on YAML structure
+            const leadingSpaces = line.length - line.trimStart().length;
+            const yamlIndentLevel = Math.floor(leadingSpaces / 2); // YAML typically uses 2-space indentation
+            
+            // For YAML, preserve the relative indentation but normalize to 2 spaces per level
+            const normalizedIndent = yamlIndentLevel * 2;
+            result.push(indentString.repeat(baseIndent) + ' '.repeat(normalizedIndent) + trimmed);
+        }
+        
+        return result.join('\n');
     }
 }
