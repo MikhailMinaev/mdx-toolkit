@@ -42,84 +42,6 @@ The extension automatically formats MDX files when you:
 - Type "Format MDX Document"
 - Press Enter
 
-## Examples
-
-### Before Formatting
-
-```mdx
----
-title: "My Document"
-author: "John Doe"
----
-
-import { Component } from 'my-library';
-
-# Hello World
-
-<Component prop="value" data={{
-key: "test",
-nested: {
-value: 123
-}
-}}>
-<div>
-Some content
-</div>
-```json
-{
-"example": "data",
-"nested": {
-"key": "value"
-}
-}
-```
-</Component>
-
-| Name | Age |
-|:--|--:|
-| John | 25 |
-| Jane | 30 |
-```
-
-### After Formatting
-```mdx
----
-title: "My Document"
-author: "John Doe"
----
-
-import { Component } from 'my-library';
-
-# Hello World
-
-<Component
-  prop="value"
-  data={{
-    key: "test",
-    nested: {
-      value: 123
-    }
-  }}
->
-  <div>
-    Some content
-  </div>
-  ```json
-  {
-    "example": "data",
-    "nested": {
-      "key": "value"
-    }
-  }
-  ```
-</Component>
-
-| Name | Age |
-| :--- | --: |
-| John |  25 |
-| Jane |  30 |
-```
-
 ## Configuration
 
 You can customize the formatter behavior in your VS Code settings:
@@ -163,12 +85,12 @@ You can customize the formatter behavior in your VS Code settings:
 
 ### Upcoming Features
 
-- 🔍 **Syntax highlighting** improvements for MDX-specific constructs
-- 🧠 **IntelliSense support** for React components in MDX
-- 🔗 **Link validation** for internal references
-- 📝 **Snippet library** for common MDX patterns
-- 🎯 **Component outline** view for navigation
-- 🔄 **Auto-import** suggestions for components
+- **Syntax highlighting** improvements for MDX-specific constructs
+- **IntelliSense support** for React components in MDX
+- **Link validation** for internal references
+- **Snippet library** for common MDX patterns
+- **Component outline** view for navigation
+- **Auto-import** suggestions for components
 
 ## Contributing
 
