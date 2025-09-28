@@ -48,6 +48,8 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
         let inCodeBlock = false;
         let inFrontmatter = false;
         let inTable = false;
+        let inJSXAttribute = false;
+        let jsxAttributeIndent = 0;
         let codeLanguage = '';
         let codeBlockContent: string[] = [];
         let tableContent: string[] = [];
@@ -115,10 +117,10 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
                     
                     // Format code block content
                     if (codeLanguage === 'json' && codeBlockContent.length > 0) {
-                        const formattedJson = this.formatJSONBlock(codeBlockContent.join('\n'), jsxDepth + 1, indent);
+                        const formattedJson = this.formatJSONBlock(codeBlockContent.join('\n'), jsxDepth, indent);
                         result.push(...formattedJson.split('\n'));
                     } else {
-                        // Non-JSON content - add with indentation
+                        // Non-JSON content - preserve original formatting
                         codeBlockContent.forEach(codeLine => {
                             result.push(indent.repeat(jsxDepth) + codeLine);
                         });
@@ -135,6 +137,19 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
             
             if (inCodeBlock) {
                 codeBlockContent.push(trimmed);
+                continue;
+            }
+            
+            // Handle JSX attribute with multiline content (like chart={`...`})
+            if (inJSXAttribute) {
+                // Check if we're ending the JSX attribute
+                if (trimmed.endsWith('`} />') || trimmed.endsWith('`}') || trimmed.endsWith('`} />')) {
+                    inJSXAttribute = false;
+                    result.push(indent.repeat(jsxAttributeIndent) + trimmed);
+                } else {
+                    // Preserve original formatting inside JSX attribute
+                    result.push(line);
+                }
                 continue;
             }
             
@@ -161,12 +176,59 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
                     jsxDepth = Math.max(0, jsxDepth - 1);
                     result.push(indent.repeat(jsxDepth) + trimmed);
                 } else if (trimmed.endsWith('/>')) {
-                    // Self-closing tag
+                    // Self-closing tag - no depth change
                     result.push(indent.repeat(jsxDepth) + trimmed);
-                } else {
-                    // Opening tag
+                } else if (this.isCompleteSingleLineJSXElement(trimmed)) {
+                    // Complete JSX element on single line (like <Step>content</Step>)
+                    const formatted = this.formatSingleLineJSXElement(trimmed, jsxDepth, indent);
+                    if (formatted.length > 1) {
+                        // Multi-line formatted element
+                        result.push(...formatted);
+                    } else {
+                        // Single line element - no depth change
+                        result.push(indent.repeat(jsxDepth) + trimmed);
+                    }
+                } else if (trimmed.endsWith('>')) {
+                    // Complete opening tag
                     result.push(indent.repeat(jsxDepth) + trimmed);
                     jsxDepth++;
+                } else {
+                    // Incomplete tag (attributes on separate lines) - preserve as is with current indentation
+                    result.push(indent.repeat(jsxDepth) + trimmed);
+                    
+                    // Check if this line starts a JSX attribute with template literal
+                    if (trimmed.includes('={`') || trimmed.includes('= {`')) {
+                        inJSXAttribute = true;
+                        jsxAttributeIndent = jsxDepth;
+                    }
+                }
+                continue;
+            }
+            
+            // Handle JSX tag attributes (lines that don't start with < but might be part of a tag)
+            // Only apply this logic if the line looks like it's part of a JSX tag (contains = or {)
+            if (jsxDepth >= 0 && (trimmed.includes('=') || trimmed.includes('{')) && (trimmed.endsWith('/>') || trimmed.endsWith('>'))) {
+                // This could be the end of a multi-line JSX tag
+                if (trimmed.endsWith('/>')) {
+                    // Self-closing tag end - no depth change
+                    result.push(indent.repeat(jsxDepth) + trimmed);
+                } else if (trimmed.endsWith('>')) {
+                    // Opening tag end - increase depth
+                    result.push(indent.repeat(jsxDepth) + trimmed);
+                    jsxDepth++;
+                }
+                continue;
+            }
+            
+            // Handle JSX attribute lines that are part of a multiline tag
+            // Only apply this to lines that are clearly JSX attributes (not JSX tags)
+            if (jsxDepth >= 0 && !trimmed.startsWith('<') && (trimmed.includes('=') || (trimmed.includes('{') && !trimmed.includes('<')))) {
+                result.push(indent.repeat(jsxDepth) + trimmed);
+                
+                // Check if this line starts a JSX attribute with template literal
+                if ((trimmed.includes('={`') || trimmed.includes('= {`')) && !trimmed.includes('`}')) {
+                    inJSXAttribute = true;
+                    jsxAttributeIndent = jsxDepth;
                 }
                 continue;
             }
@@ -330,11 +392,63 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
         return '| ' + formattedCells.join(' | ') + ' |';
     }
 
+    private isSelfClosingTag(tagString: string): boolean {
+        // Simple check - if it ends with />, it's self-closing
+        return tagString.endsWith('/>');
+    }
+
+    private isCompleteSingleLineJSXElement(line: string): boolean {
+        // Check if line contains both opening and closing tags for the same element
+        // e.g., <Step>content</Step>
+        const openTagMatch = line.match(/<(\w+)(?:\s[^>]*)?>/);
+        if (!openTagMatch) return false;
+        
+        const tagName = openTagMatch[1];
+        const closingTag = `</${tagName}>`;
+        
+        return line.includes(closingTag);
+    }
+
+    private formatSingleLineJSXElement(line: string, baseIndent: number, indentString: string): string[] {
+        const openTagMatch = line.match(/<(\w+)(?:\s[^>]*)?>/);
+        if (!openTagMatch) return [line];
+        
+        const tagName = openTagMatch[1];
+        
+        // Special handling for Step elements - format as multi-line
+        if (tagName === 'Step') {
+            const openingTagEnd = line.indexOf('>');
+            const closingTagStart = line.lastIndexOf(`</${tagName}>`);
+            
+            if (openingTagEnd === -1 || closingTagStart === -1) return [line];
+            
+            const openingTag = line.substring(0, openingTagEnd + 1);
+            const content = line.substring(openingTagEnd + 1, closingTagStart).trim();
+            const closingTag = line.substring(closingTagStart);
+            
+            if (!content) {
+                // Empty Step - keep as single line
+                return [indentString.repeat(baseIndent) + line];
+            }
+            
+            // Format as multi-line
+            const result: string[] = [];
+            result.push(indentString.repeat(baseIndent) + openingTag);
+            result.push(indentString.repeat(baseIndent + 1) + content);
+            result.push(indentString.repeat(baseIndent) + closingTag);
+            
+            return result;
+        }
+        
+        // For other elements, keep as single line
+        return [line];
+    }
+
     private formatJSONBlock(jsonContent: string, baseIndent: number, indentString: string): string {
         try {
             // Try to parse entire JSON
             const parsed = JSON.parse(jsonContent);
-            const formatted = JSON.stringify(parsed, null, indentString.length);
+            const formatted = JSON.stringify(parsed, null, 4); // Use 4 spaces for JSON formatting
             
             // Add base indentation to each line
             const lines = formatted.split('\n');
@@ -348,24 +462,24 @@ export class MDXFormatter implements vscode.DocumentFormattingEditProvider {
             return indentedLines.join('\n');
             
         } catch (error) {
-            // If JSON parsing fails, format line by line
+            // If JSON parsing fails, format line by line with proper indentation
             const lines = jsonContent.split('\n');
             const result: string[] = [];
-            let currentIndent = baseIndent;
+            let currentIndent = 0; // Start from 0, not baseIndent
             
             for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
                 
-                // Decrease indent for closing brackets
-                if (trimmed === '}' || trimmed === ']') {
-                    currentIndent = Math.max(baseIndent, currentIndent - 1);
+                // Decrease indent for closing brackets FIRST
+                if (trimmed.startsWith('}') || trimmed.startsWith(']') || trimmed === '}' || trimmed === ']' || trimmed === '},' || trimmed === '],') {
+                    currentIndent = Math.max(0, currentIndent - 1);
                 }
                 
-                result.push(indentString.repeat(currentIndent) + trimmed);
+                result.push(indentString.repeat(baseIndent) + ' '.repeat(currentIndent * 4) + trimmed);
                 
-                // Increase indent for opening brackets
-                if (trimmed === '{' || trimmed === '[' || trimmed.endsWith('{') || trimmed.endsWith('[')) {
+                // Increase indent for opening brackets AFTER adding the line
+                if (trimmed.endsWith('{') || trimmed.endsWith('[')) {
                     currentIndent++;
                 }
             }

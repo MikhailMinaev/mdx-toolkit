@@ -2,7 +2,7 @@
   "name": "mdx-toolkit",
   "displayName": "MDX Toolkit",
   "description": "A comprehensive toolkit for working with MDX files in VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "MikhailMinaev",
   "engines": {
     "vscode": "^1.74.0"
